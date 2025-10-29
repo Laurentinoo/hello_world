@@ -45,6 +45,13 @@
 #include "esp_wifi.h"
 #include "esp_sntp.h"
 #include <time.h>
+#include "lwip/sockets.h"
+#include "lwip/netdb.h"
+
+// ==== config WIFI ====
+#define PC_IP   "192.168.100.173"
+#define UDP_PORT 6010
+#define TCP_PORT 5000
 
 #define TAG "ESTEIRA"
 
@@ -66,8 +73,10 @@
 #define PRIO_SORT       3
 #define PRIO_TOUCH      2
 #define PRIO_STATS      1
-#define STK_MAIN        3072
-#define STK_AUX         2048
+#define PRIO_UDP        5
+#define PRIO_TCP        5
+#define STK_MAIN        4096
+#define STK_AUX         4096
 
 // ====== Deadlines (em microssegundos) ======
 #define D_ENC_US    5000
@@ -501,6 +510,61 @@ static void time_sync_notification_cb(struct timeval *tv){
     ESP_LOGI(TAG, "Tempo sincronizado via SNTP.");
 }
 
+//Gera dados e envia para o Servidor UDP no computador
+static void udp_task(void *arg){
+    int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+    struct sockaddr_in dest = {0};
+    dest.sin_family = AF_INET;
+    dest.sin_port = htons(UDP_PORT);
+    inet_pton(AF_INET, PC_IP, &dest.sin_addr.s_addr);
+
+    while (1) {
+        char payload[64];
+        static int seq = 0;
+        snprintf(payload, sizeof(payload), "{\"seq\":%d,\"ax\":0.12,\"ay\":-0.03}", seq++);
+        sendto(sock, payload, strlen(payload), 0, (struct sockaddr*)&dest, sizeof(dest));
+        vTaskDelay(pdMS_TO_TICKS(200));
+    }
+}
+
+//Espera pacotes enviados pelo PC usando Protocolo TCP e devolve informações
+static void tcp_server_task(void *arg) {
+    int listen_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+    struct sockaddr_in addr = {0};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(TCP_PORT);
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    bind(listen_fd, (struct sockaddr*)&addr, sizeof(addr));
+    listen(listen_fd, 1);
+    ESP_LOGI(TAG, "Servidor TCP na porta %d", TCP_PORT);
+
+    while (1) {
+        struct sockaddr_in6 source_addr; socklen_t addr_len = sizeof(source_addr);
+        int sock = accept(listen_fd, (struct sockaddr *)&source_addr, &addr_len);
+        if (sock < 0) continue;
+        ESP_LOGI(TAG, "Cliente conectado");
+
+        // Envia mensagem de boas-vindas
+        const char *hello = "ESP32: conectado!\n";
+        send(sock, hello, strlen(hello), 0);
+
+        char rx[256];
+        while (1) {
+            int len = recv(sock, rx, sizeof(rx)-1, 0);
+            if (len <= 0) { ESP_LOGI(TAG, "Cliente saiu"); break; }
+            rx[len] = 0;
+            ESP_LOGI(TAG, "RX: %s", rx);
+
+            // Eco + resposta JSON simples
+            char tx[300];
+            snprintf(tx, sizeof(tx), "{\"ok\":true,\"echo\":\"%s\"}\n", rx);
+            send(sock, tx, strlen(tx), 0);
+        }
+        shutdown(sock, 0);
+        close(sock);
+    }
+}
+
 /* ====== app_main ====== */
 void app_main(void)
 {
@@ -521,7 +585,7 @@ void app_main(void)
     } while (esp_netif_get_ip_info(sta, &ip) != ESP_OK || ip.ip.addr == 0);
 
     // Define fuso (Brasil sem DST): BRT-3
-    setenv("TZ", "BRT-3", 1);  // UTC-3 fixo
+    setenv("TZ", "<-03>3", 1);  // UTC-3 fixo
     tzset();
 
     // SNTP
@@ -531,12 +595,7 @@ void app_main(void)
     sntp_setservername(1, "b.st1.ntp.br");
     sntp_setservername(2, "pool.ntp.org");
     sntp_init();
-    
-    
 
-    // for (int i=0; i<30 && sntp_get_sync_status() == SNTP_SYNC_STATUS_RESET; ++i) {
-    //     vTaskDelay(pdMS_TO_TICKS(1000));
-    // }
 
     while(sntp_get_sync_status() != SNTP_SYNC_STATUS_COMPLETED){
         vTaskDelay(pdMS_TO_TICKS(1000));
@@ -549,6 +608,10 @@ void app_main(void)
 
     // LED
     gpio_set_direction(CONFIG_LED_PIN, GPIO_MODE_OUTPUT);  
+
+    //TASKS SERVER
+    xTaskCreatePinnedToCore(tcp_server_task, "tcp_server", STK_MAIN, NULL, PRIO_TCP, NULL, 0);
+    xTaskCreatePinnedToCore(udp_task,        "udp_task",   STK_MAIN, NULL, PRIO_UDP, NULL, 0);
 
     // Tarefas principais (core 0)
     xTaskCreatePinnedToCore(task_safety,    "SAFETY",    STK_MAIN, NULL, PRIO_ESTOP, &hSAFE, 0);

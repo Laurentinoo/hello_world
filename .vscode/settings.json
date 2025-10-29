@@ -13,7 +13,8 @@
     "time.h": "c",
     "esp_sntp.h": "c",
     "nvs_flash.h": "c",
-    "uart.h": "c"
+    "uart.h": "c",
+    "netdb.h": "c"
   },
   "idf.flashType": "UART",
   "idf.portWin": "COM3"
