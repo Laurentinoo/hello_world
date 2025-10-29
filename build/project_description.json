@@ -1,7 +1,7 @@
 {
     "version":            "1.2",
     "project_name":       "hello_world",
-    "project_version":    "1",
+    "project_version":    "a1870c9-dirty",
     "project_path":       "F:/ESP-32/Project_1/hello_world",
     "idf_path":           "C:/Users/LAURENTINO/esp/v5.5.1/esp-idf",
     "build_dir":          "F:/ESP-32/Project_1/hello_world/build",
