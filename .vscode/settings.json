@@ -1,0 +1,17 @@
+{
+  "C_Cpp.intelliSenseEngine": "default",
+  "idf.espIdfPathWin": "C:\\Users\\LAURENTINO\\esp\\v5.5.1\\esp-idf",
+  "idf.toolsPathWin": "C:\\Users\\LAURENTINO\\.espressif",
+  "idf.pythonInstallPath": "C:\\Users\\LAURENTINO\\.espressif\\tools\\idf-python\\3.11.2\\python.exe",
+  "files.associations": {
+    "esp_system.h": "c",
+    "task.h": "c",
+    "semphr.h": "c",
+    "cstdlib": "c",
+    "esp_netif.h": "c",
+    "esp_wifi.h": "c",
+    "time.h": "c"
+  },
+  "idf.flashType": "UART",
+  "idf.portWin": "COM3"
+}

@@ -1,0 +1,43 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "F:/ESP-32/Project_1/hello_world/build/CMakeFiles/bootloader"
+		},
+		{
+			"file" : "F:/ESP-32/Project_1/hello_world/build/CMakeFiles/bootloader.rule"
+		},
+		{
+			"file" : "F:/ESP-32/Project_1/hello_world/build/CMakeFiles/bootloader-complete.rule"
+		},
+		{
+			"file" : "F:/ESP-32/Project_1/hello_world/build/bootloader-prefix/src/bootloader-stamp/bootloader-build.rule"
+		},
+		{
+			"file" : "F:/ESP-32/Project_1/hello_world/build/bootloader-prefix/src/bootloader-stamp/bootloader-configure.rule"
+		},
+		{
+			"file" : "F:/ESP-32/Project_1/hello_world/build/bootloader-prefix/src/bootloader-stamp/bootloader-download.rule"
+		},
+		{
+			"file" : "F:/ESP-32/Project_1/hello_world/build/bootloader-prefix/src/bootloader-stamp/bootloader-install.rule"
+		},
+		{
+			"file" : "F:/ESP-32/Project_1/hello_world/build/bootloader-prefix/src/bootloader-stamp/bootloader-mkdir.rule"
+		},
+		{
+			"file" : "F:/ESP-32/Project_1/hello_world/build/bootloader-prefix/src/bootloader-stamp/bootloader-patch.rule"
+		},
+		{
+			"file" : "F:/ESP-32/Project_1/hello_world/build/bootloader-prefix/src/bootloader-stamp/bootloader-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"bootloader"
+		],
+		"name" : "bootloader"
+	}
+}
