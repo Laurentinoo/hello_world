@@ -140,6 +140,15 @@ static inline void stats_on_finish(rt_stats_t *s, int64_t t_end, int64_t D_us, b
     }
 }
 
+static inline void now_str(char *buf, size_t len) {
+    struct timeval tv; gettimeofday(&tv, NULL);          // CLOCK_REALTIME (SNTP)
+    struct tm tm; localtime_r(&tv.tv_sec, &tm);          // fuso local já setado
+    int ms = (int)(tv.tv_usec / 1000);
+    snprintf(buf, len, "%02d/%02d/%04d %02d:%02d:%02d.%03d",
+             tm.tm_mday, tm.tm_mon + 1, tm.tm_year + 1900,
+             tm.tm_hour, tm.tm_min, tm.tm_sec, ms);
+}
+
 // ====== Busy loop determinístico (~simula WCET) ======
 static inline void cpu_tight_loop_us(uint32_t us) {
     int64_t start = esp_timer_get_time();
@@ -336,14 +345,15 @@ static void task_touch_poll(void *arg)
             g_last_touchB_us = esp_timer_get_time();         // release do evento
             sort_evt_t e = { .t_evt_us = g_last_touchB_us }; // passa release para a task
             (void)xQueueSend(qSort, &e, 0);
-            ESP_LOGI(TAG, "OBJ: raw=%u (thr=%u)", raw, th_obj);
+            char ts[32]; now_str(ts, sizeof(ts));
+            ESP_LOGI(TAG, "[%s] OBJ: raw=%u (thr=%u)", ts, raw, th_obj);
         }
         prev_obj = obj;
 
         // HMI (Touch C)
         touch_pad_read_raw_data(TP_HMI, &raw);
         bool hmi = (raw < th_hmi);
-        if (hmi && !prev_hmi) { (void)xSemaphoreGive(semHMI); ESP_LOGI(TAG, "HMI: raw=%u (thr=%u)", raw, th_hmi); }
+        if (hmi && !prev_hmi) { (void)xSemaphoreGive(semHMI); char ts[32]; now_str(ts, sizeof(ts)); ESP_LOGI(TAG, "[%s] HMI: raw=%u (thr=%u)", ts, raw, th_hmi); }
         prev_hmi = hmi;
 
         // ESTOP (Touch D)
@@ -365,7 +375,8 @@ static void task_uart_cmd(void *arg)
 {
     const uart_port_t U = UART_NUM_0;
     uart_driver_install(U, 256, 0, 0, NULL, 0);
-    ESP_LOGI(TAG, "UART: b=OBJ  c=HMI  d=E-STOP  r=RAWs");
+    char ts[32]; now_str(ts, sizeof(ts));
+    ESP_LOGI(TAG, "[%s] UART: b=OBJ  c=HMI  d=E-STOP  r=RAWs", ts);
 
     uint8_t ch;
     while (1) {
@@ -375,9 +386,10 @@ static void task_uart_cmd(void *arg)
                     g_last_touchB_us = esp_timer_get_time();
                     sort_evt_t e = { g_last_touchB_us };
                     xQueueSend(qSort,&e,0);
-                    ESP_LOGI(TAG,"[UART] OBJ");
+                    char ts[32]; now_str(ts, sizeof(ts));
+                    ESP_LOGI(TAG,"[%s] [UART] OBJ", ts);
                 } break;
-                case 'c': case 'C': { xSemaphoreGive(semHMI); ESP_LOGI(TAG,"[UART] HMI"); } break;
+                case 'c': case 'C': { xSemaphoreGive(semHMI); char ts[32]; now_str(ts, sizeof(ts)); ESP_LOGI(TAG,"[%s] [UART] HMI", ts); } break;
                 case 'd': case 'D': {
                     g_last_touchD_us = esp_timer_get_time();
                     xSemaphoreGive(semEStop);
@@ -388,22 +400,14 @@ static void task_uart_cmd(void *arg)
                     touch_pad_read_raw_data(TP_OBJ,&ro);
                     touch_pad_read_raw_data(TP_HMI,&rc);
                     touch_pad_read_raw_data(TP_ESTOP,&rd);
-                    ESP_LOGI(TAG, "RAWs -> OBJ=%u  HMI=%u  ESTOP=%u", ro, rc, rd);
+                    char ts[32]; now_str(ts, sizeof(ts));
+                    ESP_LOGI(TAG, "[%s] RAWs -> OBJ=%u  HMI=%u  ESTOP=%u", ts, ro, rc, rd);
                 } break;
                 default: break;
             }
         }
         vTaskDelay(ticks_from_ms(5));
     }
-}
-
-static inline void now_str(char *buf, size_t len) {
-    struct timeval tv; gettimeofday(&tv, NULL);          // CLOCK_REALTIME (SNTP)
-    struct tm tm; localtime_r(&tv.tv_sec, &tm);          // fuso local já setado
-    int ms = (int)(tv.tv_usec / 1000);
-    snprintf(buf, len, "%02d/%02d/%04d %02d:%02d:%02d.%03d",
-             tm.tm_mday, tm.tm_mon + 1, tm.tm_year + 1900,
-             tm.tm_hour, tm.tm_min, tm.tm_sec, ms);
 }
 
 /* ====== STATS: log 1x/s ====== */
@@ -542,7 +546,9 @@ static void tcp_server_task(void *arg) {
         struct sockaddr_in6 source_addr; socklen_t addr_len = sizeof(source_addr);
         int sock = accept(listen_fd, (struct sockaddr *)&source_addr, &addr_len);
         if (sock < 0) continue;
-        ESP_LOGI(TAG, "Cliente conectado");
+        char ts[32]; 
+        now_str(ts, sizeof(ts));
+        ESP_LOGI(TAG, "[%s] Cliente conectado", ts);
 
         // Envia mensagem de boas-vindas
         const char *hello = "ESP32: conectado!\n";
@@ -551,9 +557,10 @@ static void tcp_server_task(void *arg) {
         char rx[256];
         while (1) {
             int len = recv(sock, rx, sizeof(rx)-1, 0);
-            if (len <= 0) { ESP_LOGI(TAG, "Cliente saiu"); break; }
+            if (len <= 0) { char ts[32]; now_str(ts, sizeof(ts)); ESP_LOGI(TAG, "[%s] Cliente saiu", ts); break; }
             rx[len] = 0;
-            ESP_LOGI(TAG, "RX: %s", rx);
+            char ts[32]; now_str(ts, sizeof(ts));
+            ESP_LOGI(TAG, "[%s] RX: %s", ts, rx);
 
             // Eco + resposta JSON simples
             char tx[300];
