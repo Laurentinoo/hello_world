@@ -10,7 +10,10 @@
     "cstdlib": "c",
     "esp_netif.h": "c",
     "esp_wifi.h": "c",
-    "time.h": "c"
+    "time.h": "c",
+    "esp_sntp.h": "c",
+    "nvs_flash.h": "c",
+    "uart.h": "c"
   },
   "idf.flashType": "UART",
   "idf.portWin": "COM3"

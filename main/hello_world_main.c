@@ -33,7 +33,24 @@
 #include "driver/touch_pad.h"   // legacy API (5.x)
 #include "driver/uart.h"
 
+// ====== Led ======
+#define CONFIG_LED_PIN 2
+#define ESP_INTR_FLAG_DEFAULT 0
+#define CONFIG_BUTTON_PIN 0
+
+// WIFI
+#include "esp_event.h"
+#include "nvs_flash.h"
+#include "esp_netif.h"
+#include "esp_wifi.h"
+#include "esp_sntp.h"
+#include <time.h>
+
 #define TAG "ESTEIRA"
+
+// CONFIG DO WIFI
+#define WIFI_SSID "Tourinho_2.4GHz"
+#define WIFI_PASS "@Leonardo18"
 
 // ====== Mapeamento correto dos touch pads (ESP32 WROOM) ======
 // T7 = GPIO27, T8 = GPIO33, T9 = GPIO32
@@ -259,6 +276,8 @@ static void task_safety(void *arg)
 
             stats_on_finish(&st_safe, esp_timer_get_time(), D_SAFE_US, /*hard=*/true);
             ESP_LOGW(TAG, "E-STOP executado");
+            bool led_status = true;
+             gpio_set_level(CONFIG_LED_PIN, led_status);
         }
     }
 }
@@ -277,7 +296,8 @@ static void task_touch_poll(void *arg)
     ESP_ERROR_CHECK(touch_pad_config(TP_HMI,   0));
     ESP_ERROR_CHECK(touch_pad_config(TP_ESTOP, 0));
 
-    vTaskDelay(ticks_from_ms(80)); // estabiliza
+    touch_pad_clear_status();
+    vTaskDelay(ticks_from_ms(500)); // estabiliza
 
     uint16_t base_obj=0, base_hmi=0, base_stop=0;
     ESP_ERROR_CHECK(touch_pad_read_raw_data(TP_OBJ,   &base_obj));
@@ -368,6 +388,15 @@ static void task_uart_cmd(void *arg)
     }
 }
 
+static inline void now_str(char *buf, size_t len) {
+    struct timeval tv; gettimeofday(&tv, NULL);          // CLOCK_REALTIME (SNTP)
+    struct tm tm; localtime_r(&tv.tv_sec, &tm);          // fuso local já setado
+    int ms = (int)(tv.tv_usec / 1000);
+    snprintf(buf, len, "%02d/%02d/%04d %02d:%02d:%02d.%03d",
+             tm.tm_mday, tm.tm_mon + 1, tm.tm_year + 1900,
+             tm.tm_hour, tm.tm_min, tm.tm_sec, ms);
+}
+
 /* ====== STATS: log 1x/s ====== */
 static void task_stats(void *arg)
 {
@@ -380,34 +409,51 @@ static void task_stats(void *arg)
     for (;;) {
         vTaskDelayUntil(&last, period);
 
-        ESP_LOGI(TAG, "=====================================================================");
+        char ts[32]; 
+        now_str(ts, sizeof(ts));
 
-        ESP_LOGI(TAG, "STATS: rpm=%.1f set=%.1f pos=%.1fmm", g_belt.rpm, g_belt.set_rpm, g_belt.pos_mm);
+        ESP_LOGI(TAG, "[%s] =====================================================================", ts);
+
+        now_str(ts, sizeof(ts));
+
+        ESP_LOGI(TAG, "[%s] UART: b=OBJ  c=HMI  d=E-STOP  r=RAWs", ts);
+
+        now_str(ts, sizeof(ts));
+
+        ESP_LOGI(TAG, "[%s] STATS: rpm=%.1f set=%.1f pos=%.1fmm", ts, g_belt.rpm, g_belt.set_rpm, g_belt.pos_mm);
+
+        now_str(ts, sizeof(ts));
 
         ESP_LOGI(TAG,
-            "ENC: rel=%u fin=%u hard=%u Cmax=%lldus Lmax=%lldus Rmax=%lldus",
-            st_enc.releases, st_enc.finishes, st_enc.hard_miss,
+            "[%s] ENC: rel=%u fin=%u hard=%u Cmax=%lldus Lmax=%lldus Rmax=%lldus",
+            ts, st_enc.releases, st_enc.finishes, st_enc.hard_miss,
             (long long)st_enc.worst_exec_us,
             (long long)st_enc.worst_latency_us,
             (long long)st_enc.worst_response_us);
-
+        
+        now_str(ts, sizeof(ts));
+        
         ESP_LOGI(TAG,
-            "CTRL: rel=%u fin=%u hard=%u Cmax=%lldus Lmax=%lldus Rmax=%lldus",
-            st_ctrl.releases, st_ctrl.finishes, st_ctrl.hard_miss,
+            "[%s] CTRL: rel=%u fin=%u hard=%u Cmax=%lldus Lmax=%lldus Rmax=%lldus",
+            ts, st_ctrl.releases, st_ctrl.finishes, st_ctrl.hard_miss,
             (long long)st_ctrl.worst_exec_us,
             (long long)st_ctrl.worst_latency_us,
             (long long)st_ctrl.worst_response_us);
-
+        
+        now_str(ts, sizeof(ts));
+        
         ESP_LOGI(TAG,
-            "SORT: rel=%u fin=%u hard=%u Cmax=%lldus Lmax=%lldus Rmax=%lldus",
-            st_sort.releases, st_sort.finishes, st_sort.hard_miss,
+            "[%s] SORT: rel=%u fin=%u hard=%u Cmax=%lldus Lmax=%lldus Rmax=%lldus",
+            ts, st_sort.releases, st_sort.finishes, st_sort.hard_miss,
             (long long)st_sort.worst_exec_us,
             (long long)st_sort.worst_latency_us,
             (long long)st_sort.worst_response_us);
 
+        now_str(ts, sizeof(ts));
+        
         ESP_LOGI(TAG,
-            "SAFE: rel=%u fin=%u hard=%u Cmax=%lldus Lmax=%lldus Rmax=%lldus",
-            st_safe.releases, st_safe.finishes, st_safe.hard_miss,
+            "[%s] SAFE: rel=%u fin=%u hard=%u Cmax=%lldus Lmax=%lldus Rmax=%lldus",
+            ts, st_safe.releases, st_safe.finishes, st_safe.hard_miss,
             (long long)st_safe.worst_exec_us,
             (long long)st_safe.worst_latency_us,
             (long long)st_safe.worst_response_us);
@@ -434,13 +480,75 @@ static void task_stats(void *arg)
     }
 }
 
+//Configura WiFi da ESP32
+static void wifi_init(void){
+    ESP_ERROR_CHECK(esp_netif_init());
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    esp_netif_create_default_wifi_sta();
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+    wifi_config_t wc = {0};
+    strcpy((char*)wc.sta.ssid, WIFI_SSID);
+    strcpy((char*)wc.sta.password, WIFI_PASS);
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wc));
+    ESP_ERROR_CHECK(esp_wifi_start());
+    ESP_ERROR_CHECK(esp_wifi_connect());
+}
+
+//Apenas para Log
+static void time_sync_notification_cb(struct timeval *tv){
+    ESP_LOGI(TAG, "Tempo sincronizado via SNTP.");
+}
+
 /* ====== app_main ====== */
 void app_main(void)
 {
+
+    //WIFI SNTP
+    ESP_ERROR_CHECK(nvs_flash_init());
+    wifi_init();
+
+    wifi_ap_record_t ap;
+    while (esp_wifi_sta_get_ap_info(&ap) != ESP_OK) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+
+    esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    esp_netif_ip_info_t ip;
+    do {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    } while (esp_netif_get_ip_info(sta, &ip) != ESP_OK || ip.ip.addr == 0);
+
+    // Define fuso (Brasil sem DST): BRT-3
+    setenv("TZ", "BRT-3", 1);  // UTC-3 fixo
+    tzset();
+
+    // SNTP
+    sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    sntp_set_time_sync_notification_cb(time_sync_notification_cb);
+    sntp_setservername(0, "a.st1.ntp.br");
+    sntp_setservername(1, "b.st1.ntp.br");
+    sntp_setservername(2, "pool.ntp.org");
+    sntp_init();
+    
+    
+
+    // for (int i=0; i<30 && sntp_get_sync_status() == SNTP_SYNC_STATUS_RESET; ++i) {
+    //     vTaskDelay(pdMS_TO_TICKS(1000));
+    // }
+
+    while(sntp_get_sync_status() != SNTP_SYNC_STATUS_COMPLETED){
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    };
+
     // IPC
     qSort    = xQueueCreate(8, sizeof(sort_evt_t));
     semEStop = xSemaphoreCreateBinary();
     semHMI   = xSemaphoreCreateBinary();
+
+    // LED
+    gpio_set_direction(CONFIG_LED_PIN, GPIO_MODE_OUTPUT);  
 
     // Tarefas principais (core 0)
     xTaskCreatePinnedToCore(task_safety,    "SAFETY",    STK_MAIN, NULL, PRIO_ESTOP, &hSAFE, 0);
